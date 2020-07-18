@@ -30,7 +30,7 @@ python generate_distant_supervision_from_conceptnet.py --dataset ./data/defeasib
 
 4. Pre-trained e-snli:
 
-Here, we first fine-tune T5 in a WT5 format on e-snli dataset, in which we only used the instances that are labeled as 'contradiction` and `entailement`. The dataset is at `data/e-snli/` folder.
+Here, we first fine-tune T5 in a WT5 format on e-snli dataset, in which we only used the instances that are labeled as "contradiction" and "entailement". The dataset is at `data/e-snli/` folder.
 
 First run the following command:
 
