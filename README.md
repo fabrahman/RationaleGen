@@ -69,7 +69,8 @@ python -m source.generative.generate_texts \
 ### Final Rationale Training
 
 * train final rationale generation (on the filtered rationales collected from different sources)
-download and put the `final_rationale` folder in the `data/` folder, then run:
+
+Download and put the `final_rationale` folder in the `data/` folder, then run:
 
 ```
 python -m source.generative.generative --train_file data/final_rationale/train.csv --eval_data_file data/final_rationale/dev.csv --out_dir /net/s3/mosaic/faezeb/RationaleGen/output/final_rationale_gpt2-xl --model_type gpt2-xl --model_name_or_path gpt2-xl --device 5 --do_train --save_steps 2000 --save_total_limit 1 --num_train_epochs 2 --logging_steps 3000 --gradient_accumulation_steps 8 --train_batch_size 8 --task train-rat
