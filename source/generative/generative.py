@@ -80,7 +80,7 @@ class TextDataset(Dataset):
     def __init__(self, tokenizer, args, file_path="train", block_size=512):
         assert os.path.isfile(file_path)
         directory, filename = os.path.split(file_path)
-        filename = f"{args.model_name_or_path}_cached_{block_size}_{filename}"
+        filename = f"{args.model_type}_{args.task}_cached_{block_size}_{filename}"
         cached_features_file = os.path.join(directory, filename)
 
         if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -89,7 +89,7 @@ class TextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Converting to token IDs")
-            examples = load_data(file_path)
+            examples = load_data(file_path, task=args.task)
             logger.info(examples[:5])
 
             process = lambda s: tokenizer.convert_tokens_to_ids(tokenizer.tokenize(s))
@@ -199,13 +199,13 @@ def main():
     )
     parser.add_argument(
         "--max_input_length",
-        default=40,
+        default=70,
         type=int,
         help="Maximum input event length in words.",
     )
     parser.add_argument(
         "--max_output_length",
-        default=40,
+        default=60,
         type=int,
         help="Maximum output event length in words.",
     )
@@ -223,6 +223,12 @@ def main():
         default="openai-gpt",
         type=str,
         help="LM checkpoint for initialization.",
+    )
+    parser.add_argument(
+        "--model_type",
+        default="",
+        type=str,
+        help="which family of LM, e.g. gpt, gpt-xl, ....",
     )
     parser.add_argument(
         "--num_train_epochs",
@@ -262,6 +268,9 @@ def main():
         "--train_batch_size", default=64, type=int, help="Batch size for training."
     )
     parser.add_argument(
+        "--block_size", default=1024, type=int, help="Block_size for creating data features."
+    )
+    parser.add_argument(
         "--train_file",
         type=str,
         required=False,
@@ -272,6 +281,11 @@ def main():
     )
     parser.add_argument(
         "--weight_decay", default=0.0, type=float, help="Weight decay if we apply some."
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        help="what is the task, train-rat, generate-rat, rat-and-update ,...?"
     )
     args = parser.parse_args()
 
@@ -314,13 +328,14 @@ def main():
     tokenizer, model = init_model(
         args.model_name_or_path, device=args.device, do_lower_case=args.do_lower_case
     )
-    args.block_size = tokenizer.max_len_single_sentence
+    
+    args.block_size = tokenizer.max_len_single_sentence if not args.block_size else args.block_size
     model.to(args.device)
     logger.info(f"Training/evaluation parameters {args}")
 
     # Add special tokens (if loading a model before fine-tuning)
     if args.do_train and not args.continue_training:
-        special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>"]
+        special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>", "[update]", "[rationale]"]
         tokenizer.pad_token = "<pad>"
         tokenizer.eos_token = "<eos>"
         tokenizer.add_tokens(special_tokens)
@@ -328,7 +343,8 @@ def main():
 
     args.pad_token_id = tokenizer.pad_token_id
 
-    if args.do_eval or args.eval_during_training:
+    eval_dataset = None # Faeze added
+    if args.do_eval or args.eval_during_train:
         eval_dataset = load_and_cache_examples(args.eval_data_file, args, tokenizer)
 
     # Training

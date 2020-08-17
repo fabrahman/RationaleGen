@@ -117,6 +117,8 @@ def get_loss(args, batch, model):
     lm_logits = model(
         input_ids, attention_mask=input_mask, decoder_input_ids=decoder_input_ids
     )[0]
+#    print(input_ids.shape, input_mask.shape, decoder_input_ids.shape)
+#    print(lm_logits.shape)
     batch_size, max_length, vocab_size = lm_logits.shape
 
     # Compute loss for each instance and each token

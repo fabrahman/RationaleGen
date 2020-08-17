@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--task",
         type=str,
-        help="what is the task when wt5 is on, rationale or , clf?"
+        help="what is the task when wt5 is on, rationale generation or , clf training?"
     )
     args = parser.parse_args()
     logger.debug(args)
@@ -99,7 +99,7 @@ def main() -> None:
     logger.debug(f"Initializing {args.device}")
 
     tokenizer, model = init_model(args.model_name_or_path, device)
-    examples = load_data(args.in_file, args.WT5, args.task)[32355:]
+    examples = load_data(args.in_file, args.WT5, args.task)
     # examples = [i[:2] for i in examples] # 3rd element (if any) is the input ids
 
     special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]"]
@@ -110,7 +110,7 @@ def main() -> None:
         else generate_regular
     )
 
-    with open(args.out_file, "a") as f_out:
+    with open(args.out_file, "w") as f_out:
         for input, output, gid in tqdm.tqdm(examples):
             try:
                 preds = generate(
@@ -135,7 +135,7 @@ def main() -> None:
                 preds = []
 
             f_out.write(
-                json.dumps({"input": input, "gold": output, "predictions": preds, "gid": gid})
+                json.dumps({"gid": gid, "input": input, "gold": output, "predictions": preds})
                 + "\n"
             )
 
@@ -148,6 +148,9 @@ def generate_conditional(tokenizer, model, args, input, device):
     decoder_start_token_id = input_ids[-1]
     input_ids = torch.tensor([input_ids]).to(device)
     max_length = args.max_length
+
+    # Faeze added
+    stop_token = tokenizer.convert_tokens_to_ids("<eos>")
 
     outputs = model.generate(
         input_ids,
@@ -167,6 +170,8 @@ def generate_conditional(tokenizer, model, args, input, device):
 
     preds = [tokenizer.decode(
         output, skip_special_tokens=True, clean_up_tokenization_spaces=False) for output in outputs]
+    # Faeze added to remove last incomplte sentence
+    preds = [" ".join(pred.split(".", -1)[:-1]) for pred in preds]
 
     return preds
 
