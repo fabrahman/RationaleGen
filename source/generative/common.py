@@ -20,6 +20,66 @@ def init_model(model_name: str, device, do_lower_case: bool = False):
     return tokenizer, model
 
 
+def load_data_generative(in_file, value_to_predict="rationale"):
+    """
+    Loads the dataset file for the generative model, including the following columns:
+
+    Original premise and hypothesis: Input_premise, Input_hypothesis
+
+    Additional premise: for role in {Attenuator, Intensifier}:
+    1) Answer_[role]_modifier: str, the additional premise.
+    2) Answer_[role]_impossible: bool, on if Answer_[role]_modifier is None (ignore) or Nan otherwise.
+    3) Answer_[role]_reason: str, reason that Answer_[role]_modifier modifies the original entailment (ignore).
+    4) Answer_[role]_option: (nan, 'stereotyped', 'other').
+    5) rationale
+
+    Returns the data in the format for training the generative model
+
+    in_file: CSV rot-details file
+    value_to_predict: which item should be the output.
+    Currently supported: "rationale", "hypothesis", "update_type", "update", "update_rationale", "multi" (all of them).
+
+    Returns a list of tuples (input, output)
+    """
+    df = pd.read_csv(in_file)
+
+    # Always predict rationale
+    values_to_predict = [value_to_predict]
+
+    if value_to_predict == "multi":
+        values_to_predict = ["rationale", "hypothesis", "update_type", "update", "update_rationale"]
+
+    examples = [
+        (
+            f"[premise] {row['premise']} " +
+            (f"[hypothesis] {row['hypothesis']} " if val != "hypothesis" else "") +
+            (f"[update_type] <{row['update_type']}> " if "update_type" not in val else "") +
+            (f"[update] {row['update']} " if val not in {'update', 'update_rationale'} else "") +
+            (f"[rationale] {row['rationale']} " if "rationale" not in val else "") +
+            f"[{val}]",
+            f"{get_target(row, val)} <eos>"
+        )
+        for _, row in df.iterrows()
+        for val in values_to_predict
+    ]
+
+    return examples
+
+
+def get_target(row, value_to_predict):
+    """
+    Get the value of the field that needs to be predicted
+    """
+    if value_to_predict in {"rationale", "hypothesis", "update"}:
+        return row[value_to_predict]
+    elif value_to_predict == "update_type":
+        return f"<{row[value_to_predict]}>"
+    elif value_to_predict == "update_rationale":
+        return f"[update] {row['update']} [rationale] {row['rationale']}"
+
+    return None
+
+
 def load_data(in_file, wt5=False, task="rationale"):
     """
     Loads the dataset file:
@@ -58,24 +118,11 @@ def load_data(in_file, wt5=False, task="rationale"):
                 data.append(field)
         df = pd.DataFrame.from_records(data)
 
-
-    # Determine the names of the premise and hypothesis columns
     columns = set(df.columns)
-
-    # SC
-    if "Input_rot" in columns:
-        premise_col, hypo_cols = None, ["Input_rot"]
-
-    # SNLI
-    elif "Input_premise" in columns:
-        assign_col, premise_col, hypo_cols, id_col = "AssignmentId", "Input_premise", ["Input_hypothesis"], "Input_pairID"
-
-    # ATOMIC
-    elif "Input_event" in columns:
-        premise_col, hypo_cols = "Input_event", [f"Input_{rel}" for rel in get_atomic_relations()]
+    assign_col, premise_col, hypo_cols, id_col = "AssignmentId", "Input_premise", ["Input_hypothesis"], "Input_pairID"
 
     # e-SNLI
-    elif "Sentence1" in columns:
+    if "Sentence1" in columns:
         premise_col, hyp_cols, label_col, exp_col = "Sentence1", "Sentence2", "gold_label", "Explanation_1"
         if "Highlight_tokens_1" in columns:
             highlight1_col, highlight2_col = "Highlight_tokens_1", "Highlight_tokens_2"
