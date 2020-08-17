@@ -27,7 +27,7 @@ class EncoderDecoderTextDataset(Dataset):
     def __init__(self, tokenizer, args, file_path, block_size=512):
         assert os.path.isfile(file_path)
         directory, filename = os.path.split(file_path)
-        filename = f"{args.model_name_or_path}_{args.task}_cached_{block_size}_{filename}"
+        filename = f"{args.model_type}_{args.task}_cached_{block_size}_{filename}"
         cached_features_file = os.path.join(directory, filename)
 
         if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -199,13 +199,13 @@ def main():
     )
     parser.add_argument(
         "--max_input_length",
-        default=75,
+        default=70,
         type=int,
         help="Maximum input event length in words.",
     )
     parser.add_argument(
         "--max_output_length",
-        default=50,
+        default=60,
         type=int,
         help="Maximum output event length in words.",
     )
@@ -223,6 +223,12 @@ def main():
         default="bart-large",
         type=str,
         help="LM checkpoint for initialization.",
+    )
+    parser.add_argument(
+        "--model_type",
+        default="",
+        type=str,
+        help="which family of LM, e.g. gpt, gpt-xl, ....",
     )
     parser.add_argument(
         "--num_train_epochs",
@@ -330,7 +336,8 @@ def main():
     args.block_size = tokenizer.max_len_single_sentence
     logger.info(f"Training/evaluation parameters {args}")
 
-    if args.do_eval or args.eval_during_training:
+    eval_dataset = None
+    if args.do_eval or args.eval_during_train:
         eval_dataset = EncoderDecoderTextDataset(
             tokenizer, args, file_path=args.eval_data_file, block_size=args.block_size)
 
