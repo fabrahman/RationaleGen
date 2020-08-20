@@ -16,7 +16,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-from source.generative.common import init_model, load_data
+from source.generative.common import init_model, load_data, load_data_generative
 
 
 def main() -> None:
@@ -99,10 +99,13 @@ def main() -> None:
     logger.debug(f"Initializing {args.device}")
 
     tokenizer, model = init_model(args.model_name_or_path, device)
-    examples = load_data(args.in_file, args.WT5, args.task)
+    examples = load_data_generative(args.in_file, args.task)
     # examples = [i[:2] for i in examples] # 3rd element (if any) is the input ids
 
-    special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]"]
+    logger.info(examples[:5])
+
+    special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+#    ["[premise]", "[hypo]", "[intensifier]", "[attenuator]"]
 
     generate = (
         generate_conditional
@@ -111,7 +114,8 @@ def main() -> None:
     )
 
     with open(args.out_file, "w") as f_out:
-        for input, output, gid in tqdm.tqdm(examples):
+#        for input, output, gid in tqdm.tqdm(examples):
+        for input, output in tqdm.tqdm(examples):
             try:
                 preds = generate(
                     tokenizer,
@@ -135,9 +139,10 @@ def main() -> None:
                 preds = []
 
             f_out.write(
-                json.dumps({"gid": gid, "input": input, "gold": output, "predictions": preds})
+                json.dumps({"input": input, "gold": output, "predictions": preds})
                 + "\n"
             )
+#            json.dumps({"gid": gid, "input": input, "gold": output, "predictions": preds})
 
 
 def generate_conditional(tokenizer, model, args, input, device):
@@ -150,7 +155,7 @@ def generate_conditional(tokenizer, model, args, input, device):
     max_length = args.max_length
 
     # Faeze added
-    stop_token = tokenizer.convert_tokens_to_ids("<eos>")
+#    stop_token = tokenizer.convert_tokens_to_ids("<eos>")
 
     outputs = model.generate(
         input_ids,
@@ -165,13 +170,14 @@ def generate_conditional(tokenizer, model, args, input, device):
         no_repeat_ngram_size=2,
         eos_token_id=tokenizer.eos_token_id,
         decoder_start_token_id=decoder_start_token_id,
-        num_return_sequences=1 # max(1, args.beams)
+        num_return_sequences=max(1, args.beams)
     )
+
 
     preds = [tokenizer.decode(
         output, skip_special_tokens=True, clean_up_tokenization_spaces=False) for output in outputs]
     # Faeze added to remove last incomplte sentence
-    preds = [" ".join(pred.split(".", -1)[:-1]) for pred in preds]
+#    preds = [" ".join(pred.split(".", -1)[:-1]) for pred in preds]
 
     return preds
 
@@ -200,6 +206,7 @@ def generate_regular(tokenizer, model, args, input, device):
     )
 
     preds = [tokenizer.decode(output, skip_special_tokens=True)[len(input):].strip() for output in outputs]
+    print(preds)
     preds = [pred.split(".")[0] for pred in preds]
 
     return preds

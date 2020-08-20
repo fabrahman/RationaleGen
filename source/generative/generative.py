@@ -19,7 +19,7 @@ from torch.nn import CrossEntropyLoss
 from transformers import AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 
-from source.generative.common import init_model, load_data
+from source.generative.common import init_model, load_data, load_data_generative
 
 
 try:
@@ -89,7 +89,7 @@ class TextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Converting to token IDs")
-            examples = load_data(file_path, task=args.task)
+            examples = load_data_generative(file_path, args.task)
             logger.info(examples[:5])
 
             process = lambda s: tokenizer.convert_tokens_to_ids(tokenizer.tokenize(s))
@@ -335,7 +335,8 @@ def main():
 
     # Add special tokens (if loading a model before fine-tuning)
     if args.do_train and not args.continue_training:
-        special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>", "[update]", "[rationale]"]
+        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+#        ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>", "[update]", "[rationale]"]
         tokenizer.pad_token = "<pad>"
         tokenizer.eos_token = "<eos>"
         tokenizer.add_tokens(special_tokens)

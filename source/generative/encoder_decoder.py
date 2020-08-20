@@ -11,7 +11,7 @@ import argparse
 from torch.utils.data import Dataset
 from torch.nn import CrossEntropyLoss
 
-from source.generative.common import init_model, load_data
+from source.generative.common import init_model, load_data, load_data_generative
 from source.generative.generative import evaluate, train, set_seed
 
 
@@ -36,7 +36,7 @@ class EncoderDecoderTextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Converting to token IDs")
-            examples = load_data(file_path, args.WT5, args.task)
+            examples = load_data_generative(file_path, args.task)
             logger.info(examples[:5])
 
             # Add prefix to the output so we can predict the first real token in the decoder
@@ -343,7 +343,8 @@ def main():
 
     # Add special tokens (if loading a model before fine-tuning)
     if args.do_train and not args.continue_training:
-        special_tokens = ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>"]
+        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+#        ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>"]
         tokenizer.pad_token = "<pad>"
         tokenizer.eos_token = "<eos>"
         tokenizer.add_tokens(special_tokens)
