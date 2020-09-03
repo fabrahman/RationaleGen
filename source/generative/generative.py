@@ -335,7 +335,7 @@ def main():
 
     # Add special tokens (if loading a model before fine-tuning)
     if args.do_train and not args.continue_training:
-        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]", "[update_type_rationale]", "[update_rationale]", "[update_type_no_rationale]", "[multi_no_rationale]", "[update_no_rationale]"]
 #        ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>", "[update]", "[rationale]"]
         tokenizer.pad_token = "<pad>"
         tokenizer.eos_token = "<eos>"

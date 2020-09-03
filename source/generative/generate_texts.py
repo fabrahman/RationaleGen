@@ -99,12 +99,15 @@ def main() -> None:
     logger.debug(f"Initializing {args.device}")
 
     tokenizer, model = init_model(args.model_name_or_path, device)
-    examples = load_data_generative(args.in_file, args.task)
+    if not args.WT5:
+        examples = load_data_generative(args.in_file, args.task)
+    else:
+        examples = load_data(args.in_file, args.WT5, task=args.task)
     # examples = [i[:2] for i in examples] # 3rd element (if any) is the input ids
 
     logger.info(examples[:5])
 
-    special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+    special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]", "[update_type_rationale]", "[update_rationale]","[update_type_no_rationale]", "[multi_no_rationale]", "[update_no_rationale]"]
 #    ["[premise]", "[hypo]", "[intensifier]", "[attenuator]"]
 
     generate = (
@@ -126,8 +129,11 @@ def main() -> None:
                 )
 
                 # For some reason some special tokens are still predicted
-                for special_token in special_tokens:
-                    preds = [pred.replace(special_token, "") for pred in preds]
+#                for special_token in special_tokens:
+#                    preds = [pred.replace(special_token, "") for pred in preds]
+
+                if args.task in ["update_rationale", "update_type_rationale"]:
+                    preds = [pred.split(" [rationale] ")[1] if " [rationale] " in pred else pred for pred in preds]
 
                 # Remove any word that has "]" or "[" in it
                 preds = [re.sub(r"(\w*\])", "", pred) for pred in preds]
@@ -170,7 +176,7 @@ def generate_conditional(tokenizer, model, args, input, device):
         no_repeat_ngram_size=2,
         eos_token_id=tokenizer.eos_token_id,
         decoder_start_token_id=decoder_start_token_id,
-        num_return_sequences=max(1, args.beams)
+        num_return_sequences=1 #max(1, args.beams)
     )
 
 
@@ -202,12 +208,11 @@ def generate_regular(tokenizer, model, args, input, device):
         early_stopping=True,
         pad_token_id=tokenizer.pad_token_id,
         no_repeat_ngram_size=3,
-        num_return_sequences=1 #max(1, args.beams)
+        num_return_sequences=max(1, args.beams)
     )
 
     preds = [tokenizer.decode(output, skip_special_tokens=True)[len(input):].strip() for output in outputs]
-    print(preds)
-    preds = [pred.split(".")[0] for pred in preds]
+#    preds = [pred.split(".")[0] for pred in preds]
 
     return preds
 

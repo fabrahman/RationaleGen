@@ -27,7 +27,7 @@ class EncoderDecoderTextDataset(Dataset):
     def __init__(self, tokenizer, args, file_path, block_size=512):
         assert os.path.isfile(file_path)
         directory, filename = os.path.split(file_path)
-        filename = f"{args.model_type}_{args.task}_cached_{block_size}_{filename}"
+        filename = f"{os.path.basename(args.model_type)}_{args.task}_cached_{block_size}_{filename}"
         cached_features_file = os.path.join(directory, filename)
 
         if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -343,7 +343,7 @@ def main():
 
     # Add special tokens (if loading a model before fine-tuning)
     if args.do_train and not args.continue_training:
-        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]"]
+        special_tokens = ["[premise]", "[hypothesis]", "[update_type]", "<intensifier>", "<attenuator>", "<eos>", "[update]", "[rationale]", "[update_type_rationale]", "[update_rationale]", "[update_type_no_rationale]", "[multi_no_rationale]", "[update_no_rationale]"]
 #        ["[premise]", "[hypo]", "[intensifier]", "[attenuator]", "<eos>"]
         tokenizer.pad_token = "<pad>"
         tokenizer.eos_token = "<eos>"

@@ -1,6 +1,6 @@
-import pandas as pd
 import os
 import json
+import pandas as pd
 
 from transformers import AutoModelWithLMHead, AutoTokenizer
 
@@ -33,7 +33,10 @@ def load_data_generative(in_file, value_to_predict="rationale"):
     Returns the data in the format for training the generative model
     in_file: CSV rot-details file
     value_to_predict: which item should be the output.
-    Currently supported: "rationale", "hypothesis", "update_type", "update", "update_rationale", "multi" (all of them).
+    Currently supported: "rationale", "hypothesis", "update_type", "update", "update_rationale",
+    "update_type_rationale", "multi" (all of them), "update_type_no_rationale" (original DI discriminative), 
+    "update_no_rationale" (original DI generative), 
+    "multi_no_rationale" (two previous ones)
     Returns a list of tuples (input, output)
     """
     df = pd.read_csv(in_file)
@@ -41,18 +44,19 @@ def load_data_generative(in_file, value_to_predict="rationale"):
     # Always predict rationale
     values_to_predict = [value_to_predict]
 
-
     if value_to_predict == "multi":
-        values_to_predict = ["rationale", "update_type", "update"] #["rationale", "hypothesis", "update_type", "update", "update_rationale"]
+        values_to_predict = ["rationale", "update_type", "update"]
+    elif value_to_predict == "multi_no_rationale":
+        values_to_predict = ["update_type_no_rationale", "update_no_rationale"]
 
     examples = [
         (
             f"[premise] {row['premise']} " +
             (f"[hypothesis] {row['hypothesis']} " if val != "hypothesis" else "") +
             (f"[update_type] <{row['update_type']}> " if "update_type" not in val else "") +
-            (f"[update] {row['update']} " if val not in {'update', 'update_rationale'} else "") +
+            (f"[update] {row['update']} " if val not in {'update', 'update_rationale', 'update_no_rationale'} else "") +
             (f"[rationale] {row['rationale']} " if "rationale" not in val else "") +
-            f"[{val}]",
+            f"[{val.replace('_no_rationale', '')}]",
             f"{get_target(row, val)} <eos>"
         )
         for _, row in df.iterrows()
@@ -66,13 +70,17 @@ def get_target(row, value_to_predict):
     """
     Get the value of the field that needs to be predicted
     """
+    value_to_predict = value_to_predict.replace("_no_rationale", "")
+    
     if value_to_predict in {"rationale", "hypothesis", "update"}:
         return row[value_to_predict]
     elif value_to_predict == "update_type":
         return f"<{row[value_to_predict]}>"
     elif value_to_predict == "update_rationale":
         return f"[update] {row['update']} [rationale] {row['rationale']}"
-
+    elif value_to_predict == "update_type_rationale":
+        return f"[update_type] <{row['update_type']}> [rationale] {row['rationale']}"
+    
     return None
 
 
