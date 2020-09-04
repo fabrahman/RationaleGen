@@ -29,6 +29,7 @@ def main():
 
             for ex in data:
                 curr_gold = ex["gold"].lower().replace("<eos>", "").strip()
+                curr_gold = curr_gold.split(" [rationale] ")[1] if " [rationale] " in curr_gold else curr_gold.replace(" [update]","").replace(" [update_type]","").replace(" [rationale]","")
                 curr_preds = [pred.lower().strip() for pred in ex["predictions"]]
                 curr_preds = set([pred for pred in curr_preds if len(pred) > 1])
 
