@@ -59,7 +59,7 @@ def main():
     # Save 
     for update_type in update_types:
         percents[update_type].to_csv(f"{args.out_dir}/{update_type}.csv")
-    
+
 
 if __name__ == "__main__":
     main()

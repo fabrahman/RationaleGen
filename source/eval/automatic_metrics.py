@@ -30,7 +30,7 @@ def main():
             for ex in data:
                 curr_gold = ex["gold"].lower().replace("<eos>", "").strip()
                 curr_preds = [pred.lower().strip() for pred in ex["predictions"]]
-                curr_preds = set([pred for pred in curr_preds if len(pred) > 0])
+                curr_preds = set([pred for pred in curr_preds if len(pred) > 1])
 
                 if len(curr_gold) > 0 and len(curr_preds) > 0:
                     gold[ex["input"]].append(curr_gold)
