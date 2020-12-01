@@ -16,7 +16,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-from source.generative.common import init_model, load_data, load_data_generative
+from source.generative.common import init_model, load_data_wt5, load_data_generative
 
 
 def main() -> None:
@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--task",
         type=str,
-        help="what is the task when wt5 is on, rationale generation or , clf training?"
+        help="what is the task?"
     )
     args = parser.parse_args()
     logger.debug(args)
@@ -99,10 +99,8 @@ def main() -> None:
     logger.debug(f"Initializing {args.device}")
 
     tokenizer, model = init_model(args.model_name_or_path, device)
-    if not args.WT5:
-        examples = load_data_generative(args.in_file, args.task)
-    else:
-        examples = load_data(args.in_file, args.WT5, task=args.task)
+
+    examples = load_data_wt5(args.in_file, task=args.task) if args.task.startswith("wt5") else load_data_generative(args.in_file, args.task)
     # examples = [i[:2] for i in examples] # 3rd element (if any) is the input ids
 
     logger.info(examples[:5])

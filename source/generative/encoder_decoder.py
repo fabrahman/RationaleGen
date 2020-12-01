@@ -36,7 +36,7 @@ class EncoderDecoderTextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Converting to token IDs")
-            examples = load_data_wt5(file_path, args.task) if args.WT5 else load_data_generative(file_path, args.task)
+            examples = load_data_wt5(file_path, args.task) if args.task.startswith("wt5") else load_data_generative(file_path, args.task)
             logger.info(examples[:5])
 
             # Add prefix to the output so we can predict the first real token in the decoder
@@ -285,7 +285,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        help="what is the task when wt5 is on, rationale or , clf?"
+        help="what is the task?"
     )
     args = parser.parse_args()
 
