@@ -208,7 +208,7 @@ def generate_regular(tokenizer, model, args, input, device):
         early_stopping=True,
         pad_token_id=tokenizer.pad_token_id,
         no_repeat_ngram_size=3,
-        num_return_sequences=max(1, args.beams)
+        num_return_sequences=1 #max(1, args.beams)
     )
 
     preds = [tokenizer.decode(output, skip_special_tokens=True)[len(input):].strip() for output in outputs]
