@@ -30,7 +30,7 @@ python generate_distant_supervision_from_conceptnet.py --dataset ./data/defeasib
 
 4. Pre-trained e-snli:
 
-Here, we first fine-tune T5 in a WT5 format on e-snli dataset, in which we only used the instances that are labeled as "contradiction" and "entailement". The dataset is at `data/e-snli/` folder.
+Here, we first fine-tune T5 in a WT5 format on e-snli dataset, in which we only used the instances that are labeled as "contradiction" and "entailement". Download the dataset from [here](https://drive.google.com/file/d/1BcsYNtxIY3V1fPycePjYqOlTDJ9EQunX/view?usp=sharing), unzip and put it at `data/e-snli/` folder.
 
 First run the following command:
 
@@ -51,7 +51,8 @@ python -m source.generative.encoder_decoder \
         --logging_steps 5000 \
         --gradient_accumulation_steps 8 \
         --train_batch_size 16 \
-        --eval_batch_size 16
+        --eval_batch_size 16 \
+	--task wt5_esnli
 ```
 
 We then generate rationales for the train set of definf dataset using the pretrained rationale generation model on e-snli:
@@ -61,8 +62,7 @@ python -m source.generative.generate_texts \
 	--out_file output/e-snli_t5_large/train_definf_rationalized_ft_esnli.jsonl \
 	--model_name_or_path output/e-snli-t5-large \
 	--beams 5 \
-	--WT5 \
-	--task rationale \
+	--task wt5_DI \
 	--device 0
 ```
 
