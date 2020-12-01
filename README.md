@@ -1,18 +1,37 @@
-## Unsupervised Rationale Generation for nonmonothonic Reasoning
+## Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision
 
-### Generating Rationales
+### Extracting Salient Spans
+
+TODO
+
+### Collecting Rationales
 
 Follow the instruction to generate rationales from different resources:
 
-1.  Pre-trained Language Model:
+1.  Vanilla LM:
 
-For faster generation, the train dataset is splitted and located at `data/defeasible-snli`
+Run the following commands to generate rationales from LM using the salient spans:
 
-```bash
-bash generate_lm_rationales.sh definf-snli data/defeasible-snli
+```
+export DATA_DIR=<PATH_TO_DIR_WITH_EXTRACTED_SALIENT_SPANS>
+export OUT_DIR="./output/lm_rationale"
+python -m source.preprocessing.generate_from_lm_v2 \
+	--dataset ${DATA_DIR}/train_extracted_spans.jsonl \
+	--out_file ${OUT_DIR}/train_rationalized_gpt2-medium.jsonl \
+	--max_single_rationale_length 12 \
+	--max_pair_rationale_length 12 \
+	--p_sampling 0.35 \
+	--rationale_redundancy 20 \
+	--device 4 \
+	--lm gpt2-medium \
+	--dataset_type definf-snli
 ```
 
-2. COMET:
+2. KG-enhanced LM:
+
+TODO
+
+3. COMET:
 
 We used beam5 for decoding.
 
@@ -20,15 +39,7 @@ We used beam5 for decoding.
 python source/preprocessing/generate_rationale_from_comet.py --dataset ./data/defeasible-snli/train.csv --dataset_type definf-snli --out_file ./data/defeasible-snli/comet_supervision/train_rationalized_comet.jsonl --device 2
 ```
 
-3. ConceptNet:
-
-For ConceptNet, we filtered out stopwords from hypothesis and updates, we took lemma for verbs, we also disallowed some common verbs. Additionally, we exclude some relations from conceptnet.
-
-```
-python generate_distant_supervision_from_conceptnet.py --dataset ./data/defeasible-snli/train.csv --dataset_type definf-snli --out_file ./data/defeasible-snli/conceptnet_suprvision/train_rationalized_conceptnet.jsonl --answer_redundancy 3 --max_length 2 --conceptnet_dir ~/resources/conceptnet
-```
-
-4. Pre-trained e-snli:
+4. NLI:
 
 Here, we first fine-tune T5 in a WT5 format on e-snli dataset, in which we only used the instances that are labeled as "contradiction" and "entailement". Download the dataset from [here](https://drive.google.com/file/d/1BcsYNtxIY3V1fPycePjYqOlTDJ9EQunX/view?usp=sharing), unzip and put it at `data/e-snli/` folder.
 
@@ -56,6 +67,7 @@ python -m source.generative.encoder_decoder \
 ```
 
 We then generate rationales for the train set of definf dataset using the pretrained rationale generation model on e-snli:
+
 ```
 python -m source.generative.generate_texts \
 	--in_file data/defeasible-snli/train.csv \
@@ -66,12 +78,84 @@ python -m source.generative.generate_texts \
 	--device 0
 ```
 
-### Final Rationale Training
+5. NLI w/ Highights:
+
+Similarly, we train a variant of T5-based based model using (only) the salient spans in the premise and hypothesis as input:
+
+```
+python -m source.generative.encoder_decoder \
+	--train_file data/e-snli/train.csv \
+	--eval_data_file data/e-snli/dev.csv 
+	--out_dir output/e-snli_t5_large_highlight \
+	--model_type t5_large \
+	--model_name_or_path t5-large \
+	--device 0 \
+	--do_train --do_eval \
+	--eval_during_train \
+	--save_steps 2000 \
+	--save_total_limit 1 \
+	--num_train_epochs 5 \
+	--logging_steps 5000 \
+	--gradient_accumulation_steps 8 \
+	--train_batch_size 32 \
+	--eval_batch_size 32 \
+	--task wt5_esnli_highlight
+```
+
+Generate rationales:
+
+```
+export DATA_DIR=<PATH_TO_DIR_WITH_EXTRACTED_SALIENT_SPANS>
+export OUT_DIR="./output/e-snli_t5_large_highlight"
+
+python -m source.generative.generate_texts \
+	--in_file ${DATA_DIR}/train_extracted_spans.jsonl \
+	--out_file ${OUT_DIR}/train_rationalized_esnli_highlight.jsonl \
+	--device 0 \
+	--model_name_or_path output/e-snli_t5_large_highlight \
+	--beams 5 \
+	--task wt5_DI_highlight
+```
+
+### Filtering Rationales
+
+TODO
+
+### Final Rationale Generation Models
 
 * train final rationale generation (on the filtered rationales collected from different sources)
 
 Download and put the `final_rationale` folder in the `data/` folder, then run:
 
 ```
-python -m source.generative.generative --train_file data/final_rationale/train.csv --eval_data_file data/final_rationale/dev.csv --out_dir /net/s3/mosaic/faezeb/RationaleGen/output/final_rationale_gpt2-xl --model_type gpt2-xl --model_name_or_path gpt2-xl --device 5 --do_train --save_steps 2000 --save_total_limit 1 --num_train_epochs 2 --logging_steps 3000 --gradient_accumulation_steps 8 --train_batch_size 8 --task train-rat
+python -m source.generative.encoder_decoder \
+	--train_file data/final_rationale/train.csv \
+	--eval_data_file data/final_rationale/dev.csv \
+	--out_dir output/final_rationale_bart-large \
+	--model_type bart-large \
+	--model_name_or_path bart-large \
+	--device 0 \
+	--do_train \
+	--save_steps 1000 \
+	--save_total_limit 1 \
+	--num_train_epochs 2 \
+	--logging_steps 2000 \
+	--gradient_accumulation_steps 8 \
+	--train_batch_size 64 \
+	--task rationale
 ```
+
+NOTE: `--model_type` can be among ["gpt2-xl", "bart-large"], and `--task` can be among ["rationale", "multi", "update_rationale", "update_type_rationale"].
+
+Then generate rationales using:
+
+```
+python -m source.generative.generate_texts \
+	--in_file data/final_rationale/test.csv \
+	--out_file output/rationale_bart-large/test_rationale_bart-large.jsonl \
+	--model_name_or_path output/rationale_bart-large \
+	--beams 5 \
+	--task rationale \
+	--device 0
+```
+
