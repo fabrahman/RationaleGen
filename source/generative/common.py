@@ -84,28 +84,21 @@ def get_target(row, value_to_predict):
     return None
 
 
-def load_data(in_file, wt5=False, task="rationale"):
+def load_data_wt5(in_file, task="wt5_esnli"):
     """
     Loads the dataset file:
-    Original premise and hypothesis:
-    1) SC: Input_rot
-    2) SNLI: Input_premise, Input_hypothesis
-    3) ATOMIC: Input_event, Input_[rel] for rel in ATOMIC relations
-    Additional premise: for role in {Attenuator, Intensifier}:
-    1) Answer_[role]_modifier: str, the additional premise.
-    2) Answer_[role]_impossible: bool, on if Answer_[role]_modifier is None (ignore) or Nan otherwise.
-    3) Answer_[role]_reason: str, reason that Answer_[role]_modifier modifies the original entailment (ignore).
-    4) Answer_[role]_option: (nan, 'stereotyped', 'other').
+    1) train on e-SNLI: Sentence1, Sentence2, gold_label, Explanation_1, (Highlight_tokens_1, Highlight_tokens_2)
+    2) generate on DI:
+        1- wt5_DI: Input_premise, Input_hypothesis, Answer_[role]_modifier (for role in {Attenuator, Intensifier})
+        2- wt5_DI_highlight: update_extracted_rationale, hypothesis_extracted_rationale
     Returns the data in the format for training the generative model, i.e.:
-    If predicting the RoT:
-    Input: "[premise] <premise> [hypo] <hypo> [attenuator]" or "[premise] <premise> [hypo] <hypo> [intensifier]"
-    Output: Answer_Attenuator_modifier or Answer_Intensifier_modifier
-    in_file: CSV rot-details file
+
+    in_file: CSV file (wt5_esnli, wt5_esnli_highlight, wt5_DI) / jsonl file (wt5_DI_highlight)
     Returns a list of tuples (input, output)
     """
     if os.path.splitext(in_file)[-1] == ".csv":
         df = pd.read_csv(in_file)
-    elif os.path.splitext(in_file)[-1] == ".jsonl" and task == "tokens-2-rationale":
+    elif os.path.splitext(in_file)[-1] == ".jsonl" and task == "wt5_DI_highlight":
         data = []
         with open(in_file) as f_in:
             for line in f_in:
@@ -114,140 +107,64 @@ def load_data(in_file, wt5=False, task="rationale"):
                 field["Highlight_tokens_2"] = " # ".join([tok for span in field["hypothesis_extracted_rationale"] for tok in span.split()])
                 data.append(field)
         df = pd.DataFrame.from_records(data)
-
     columns = set(df.columns)
-    assign_col, premise_col, hypo_cols, id_col = "AssignmentId", "Input_premise", ["Input_hypothesis"], "Input_pairID"
 
     # e-SNLI
     if "Sentence1" in columns:
-        premise_col, hyp_cols, label_col, exp_col = "Sentence1", "Sentence2", "gold_label", "Explanation_1"
-        if "Highlight_tokens_1" in columns:
-            highlight1_col, highlight2_col = "Highlight_tokens_1", "Highlight_tokens_2"
+        premise_col, hyp_col, label_col, exp_col, highlight1_col, highlight2_col = "Sentence1", "Sentence2", "gold_label", "Explanation_1", "Highlight_tokens_1", "Highlight_tokens_2"
+    # DI
+    elif "Input_premise" in columns:
+        premise_col, hypo_col = "Input_premise", "Input_hypothesis"
 
-    # SNLI with extracted update/hypo spans (obtained from classifier attentions)
-    elif "update_extracted_rationale" in columns:
-        assign_col, highlight1_col, highlight2_col = "annotation_id", "Highlight_tokens_1", "Highlight_tokens_2" #"update_extracted_rationale", "hypothesis_extracted_rationale"
-
-    # SNLI with final filtered rationales
-    elif "rationale" in columns:
-        assign_col, premise_col, update_col, hypo_col, role_col, rationale_col = "annotation_id", "premise", "update", "hypothesis", "update_type", "rationale"
-
-    else:
-        raise ValueError("Wrong data format, missing premise and hypothesis columns")
-
-    # e-snli dataset (only for training)
-    if "Sentence1" in columns:
-        if task == "tokens-2-rationale":
-            examples = [
-                (
-                    "[premise] {} [hypo] {}".format(row[highlight1_col], row[highlight2_col]),
-                    "explanation: {} <eos>".format(row[exp_col])
-                )
-                for _, row in df.iterrows()
-            ]
-
-        # TODO: later use elif task == "wt5-esnli" ----> must change github readme
-        else:
-
-            examples = [
-                (
-                    "explain nli premise: {} hypothesis: {}".format(row[premise_col], row[hyp_cols]),
-                    "{} explanation: {} <eos>".format("intensifier" if row[label_col]=="entailment" else "attenuator", row[exp_col])
-                )
-                for _, row in df.iterrows()
-            ]
-
-    # defeasible dataset only on highlighted spans
-    elif task == "tokens-2-rationale":
-        # rationale generation from highlighted (mostly attended) spans of update and hypothesis
+    # train on esnli human-written rationales
+    if task == "wt5_esnli":
         examples = [
             (
-                "[premise] {} [hypo] {}".format(row[highlight1_col], row[highlight2_col]),#"[premise] {} [hypo] {}".format(" # ".join(row[highlight1_col].split())," # ".join(row[highlight2_col].split())),
-                "explanation: <eos>",
-                row[assign_col]
+                "explain nli premise: {} hypothesis: {}".format(row[premise_col], row[hyp_col]),
+                "{} explanation: {} <eos>".format("intensifier" if row[label_col] == "entailment" else "attenuator",
+                                                  row[exp_col])
             )
             for _, row in df.iterrows()
         ]
 
-    # defeasible dataset with final filtered rationales
-    elif task == 'train-rat' or task == 'generate-rat':
-        # rationale generation given all other inputs
-        examples = [
-            (
-                "[premise] {} [update] {} [hypo] {} [{}] [rationale]".format(row[premise_col], row[update_col], row[hypo_col], row[role_col]),
-                "{} <eos>".format(row[rationale_col]),
-                row[assign_col]
-            )
-            for _, row in df.iterrows()
-        ]
+    # generate rationales for DI using pre-trained wt5 on e-esnli
+    elif task == "wt5_DI":
+        df = df[df["Answer_Intensifier_impossible"] != "on"]
+        df = df[df["Answer_Attenuator_impossible"] != "on"]
 
-    # defeasible datasets
-    else:
-        df = df[~df["Answer_Intensifier_modifier"].isna()]
-        df = df[~df["Answer_Attenuator_modifier"].isna()]
-
-        roles = ['Intensifier', 'Attenuator']
-        examples = {
-            role: df[~df[f"Answer_{role}_modifier"].isna()][[f"Answer_{role}_modifier"] + hypo_cols + [assign_col] + [id_col] +
-                                                          ([premise_col] if premise_col is not None else [])]
-            for role in roles}
+        # make sure the order of roles is the same in all sources.
+        roles = ['Attenuator', 'Intensifier']
         modifier_cols = {role: f"Answer_{role}_modifier" for role in roles}
-        # modeling WT5 format for rationale generation (only inference using pre-trained WT5 on e-snli) or classification (both training and testing)
-        if wt5:
-            # rationale generation
-            if task == "rationale":
-                examples = [
-                    (
-                        f"explain nli premise: {row[premise_col]} {row[modifier_cols[role]].strip('.')}. hypothesis: {row[hypo_col].strip('.')}.",
-                        f"{role.lower()} explanation: <eos>",
-                        ":".join([row[assign_col], row[id_col]])+":S" if role == 'Intensifier' else ":".join([row[assign_col], row[id_col]])+":W"
-                    )
-                    for role in roles
-                    for _, row in examples[role].iterrows()
-                    for hypo_col in hypo_cols
-                ]
+        examples = [
+            (
+                f"explain nli premise: {row[premise_col]} {row[modifier_cols[role]].strip('.')}. hypothesis: {row[hypo_col].strip('.')}.",
+                f"{role.lower()} explanation: <eos>"
+            )
+            for _, row in df.iterrows()
+            for role in roles
+        ]
 
-            elif task == "clf":
-                examples = [
-                    (
-                        f"premise: {row[premise_col]} {row[modifier_cols[role]].strip('.')}. hypothesis: {row[hypo_col].strip('.')}.",
-                        f"{role.lower()}",
-                    )
-                    for role in roles
-                    for _, row in examples[role].iterrows()
-                    for hypo_col in hypo_cols
-                ]
+    # train on e-snli highlights
+    elif task == "wt5_esnli_highlight":
+        examples = [
+            (
+                "[premise] {} [hypo] {}".format(row[highlight1_col], row[highlight2_col]),
+                "explanation: {} <eos>".format(row[exp_col])
+            )
+            for _, row in df.iterrows()
+        ]
 
-        # Original Vered's part for generating updates
-        # No premise
-        elif premise_col is None:
-            examples = [
-                (
-                    f"[hypo] {row[hypo_col]} [{role.lower()}]",
-                    f"{row[modifier_cols[role]]} <eos>",
-                )
-                for role in roles
-                for _, row in examples[role].iterrows()
-                for hypo_col in hypo_cols
-            ]
-
-        # With a premise
-        else:
-            examples = [
-                (
-                    f"[premise] {row[premise_col]} [hypo] {row[hypo_col]} [{role.lower()}]",
-                    f"{row[modifier_cols[role]]} <eos>",
-                )
-                for role in roles
-                for _, row in examples[role].iterrows()
-                for hypo_col in hypo_cols
-            ]
+    # generate rationales for DI using pre-trained wt5 on e-snli highlights
+    elif task == "wt5_DI_highlight":
+        examples = [
+            (
+                "[premise] {} [hypo] {}".format(row[highlight1_col], row[highlight2_col]),
+                "explanation: <eos>"
+            )
+            for _, row in df.iterrows()
+        ]
 
     print("Example: ", examples[:2])
     print("Example: ", examples[-2:])
     return examples
 
-
-
-def get_atomic_relations():
-    return []

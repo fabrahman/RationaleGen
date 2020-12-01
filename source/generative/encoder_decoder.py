@@ -11,7 +11,7 @@ import argparse
 from torch.utils.data import Dataset
 from torch.nn import CrossEntropyLoss
 
-from source.generative.common import init_model, load_data, load_data_generative
+from source.generative.common import init_model, load_data_wt5, load_data_generative
 from source.generative.generative import evaluate, train, set_seed
 
 
@@ -36,7 +36,7 @@ class EncoderDecoderTextDataset(Dataset):
                 self.examples = pickle.load(handle)
         else:
             logger.info("Converting to token IDs")
-            examples = load_data_generative(file_path, args.task)
+            examples = load_data_wt5(file_path, args.task) if args.WT5 else load_data_generative(file_path, args.task)
             logger.info(examples[:5])
 
             # Add prefix to the output so we can predict the first real token in the decoder
@@ -280,7 +280,7 @@ def main():
         "--weight_decay", default=0.0, type=float, help="Weight decay if we apply some."
     )
     parser.add_argument(
-        "--WT5", action="store_true", help="Whether to run generation in WT5 mode fori definf data."
+        "--WT5", action="store_true", help="Whether to train/generate in WT5 setting (this is for the rationale collection step)."
     )
     parser.add_argument(
         "--task",
