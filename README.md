@@ -29,7 +29,34 @@ python -m source.preprocessing.generate_from_lm_v2 \
 
 2. KG-enhanced LM:
 
-TODO
+We use only the ConceptNet portion of the data provided [here](https://github.com/JianGuanTHU/CommonsenseStoryGen) and post-train GPT2-M on them:
+
+```
+python -m source.generative.run_language_modeling \
+	--output_dir output/conceptnet_trained \
+	--model_type=gpt2-medium \
+	--model_name_or_path=gpt2-medium \
+	--train_data_file=$TRAIN_FILE \
+	--do_train \
+	--do_eval \
+	--eval_data_file=$TEST_FILE \
+	--num_train_epochs 2
+```
+
+Using the trained model to generate rationales given the salient spans:
+
+```
+python -m source.preprocessing.generate_from_KG_enhanced_lm \
+	--dataset ${DATA_DIR}/train_extracted_spans.jsonl \
+	--out_file ${OUT_DIR}/train_rationalized_gpt2-medium-enh.jsonl \
+	--lm gpt2-medium \ 
+	--model_name_or_path output/concepnet_trained/ 
+	--dataset_type definf-snli
+        --p_sampling 0.5 \
+        --temperature 0.7 \
+        --rationale_redundancy 5 \
+        --device 0 \ 
+```
 
 3. COMET:
 
@@ -66,7 +93,7 @@ python -m source.generative.encoder_decoder \
 	--task wt5_esnli
 ```
 
-We then generate rationales for the train set of definf dataset using the pretrained rationale generation model on e-snli:
+Generate rationales for the train set of definf dataset using the pretrained rationale generation model on e-snli:
 
 ```
 python -m source.generative.generate_texts \
@@ -102,7 +129,7 @@ python -m source.generative.encoder_decoder \
 	--task wt5_esnli_highlight
 ```
 
-Generate rationales:
+And generate rationales:
 
 ```
 export DATA_DIR=<PATH_TO_DIR_WITH_EXTRACTED_SALIENT_SPANS>
