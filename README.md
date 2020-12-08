@@ -58,12 +58,12 @@ python -m source.preprocessing.generate_from_KG_enhanced_lm \
         --device 0 \ 
 ```
 
-3. COMET:
+3. COMeT:
 
-We used beam5 for decoding.
+Make sure you've installed the COMeT reimplementation from [here](https://github.com/vered1986/comet-commonsense). We used beam5 for decoding.
 
 ```
-python source/preprocessing/generate_rationale_from_comet.py --dataset ./data/defeasible-snli/train.csv --dataset_type definf-snli --out_file ./data/defeasible-snli/comet_supervision/train_rationalized_comet.jsonl --device 2
+python source/preprocessing/generate_rationale_from_comet.py --dataset ./data/defeasible-snli/train.csv --out_file ./data/defeasible-snli/comet_supervision/train_rationalized_comet.jsonl --device 0
 ```
 
 4. NLI:

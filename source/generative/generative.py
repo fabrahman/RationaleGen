@@ -19,7 +19,7 @@ from torch.nn import CrossEntropyLoss
 from transformers import AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler
 
-from source.generative.common import init_model, load_data, load_data_generative
+from source.generative.common import init_model, load_data_generative
 
 
 try:
