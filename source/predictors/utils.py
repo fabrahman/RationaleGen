@@ -39,11 +39,14 @@ class InputExample(object):
             specified for train and dev examples, but not for test examples.
     """
 
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, text_a, text_b=None, label=None, prem=None, hypo=None, upd=None):
         self.guid = guid
         self.text_a = text_a
         self.text_b = text_b
         self.label = label
+        self.prem = prem
+        self.hypo = hypo
+        self.upd = upd
 
     def __repr__(self):
         return str(self.to_json_string())

@@ -13,8 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified by Rachel Rudinger 2020 / Faeze Brahman 2020
 """ Finetuning the library models for sequence classification on GLUE (Bert, XLM, XLNet, RoBERTa, Albert, XLM-RoBERTa)."""
-
 
 import argparse
 import glob
@@ -28,6 +28,7 @@ import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+import torch.nn.functional as F
 
 from transformers import (
     WEIGHTS_NAME,
@@ -59,16 +60,11 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from transformers import glue_compute_metrics as compute_metrics
-from transformers import glue_convert_examples_to_features as convert_examples_to_features
+from transformers import glue_convert_examples_to_features as convert_examples_to_features_orig
+from transformer_utils.glue import glue_convert_examples_to_features as convert_examples_to_features_w_subtokens
 from transformers import glue_output_modes as output_modes
 from transformers import glue_processors as processors
-from defeasible_utils import (
-    DefeasibleClassifierProcessor,
-    DefeasibleClassifierWithRationaleProcessor,
-    DefeasibleClassifierRationaleFromEsnliProcessor,
-    DefeasibleClassifierRationaleFromComet
-)
-
+from defeasible_utils import DefeasibleClassifierProcessor, eSNLIClassifierProcessor
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -78,8 +74,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-
+processors["dfs-cls"] = DefeasibleClassifierProcessor
+processors["esnli-cls"] = eSNLIClassifierProcessor
 output_modes["dfs-cls"] = "classification"
+output_modes["esnli-cls"] = "classification"
 
 ALL_MODELS = sum(
     (
@@ -117,6 +115,50 @@ def set_seed(args):
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
+def get_token_saliency_score(attentions, token_map):
+    """
+    compute token level attentions from subtoken attention and subtoken_map list
+    """
+    token_map = token_map.detach().cpu().tolist()
+    token_map = token_map[:token_map.index(0)]
+    attentions = attentions.detach().cpu().tolist()[:len(token_map)]
+    token_attentions = []
+    for i, ind in enumerate(token_map[:-1]):
+        # if i == 0 or ind == -1:
+        if i == 0:
+            token_attentions.append(0.0)
+            continue
+        if ind == -1: # only in the middle od input
+            token_attentions[-1] += 0.0
+            continue
+        if ind == token_map[i-1]:
+            token_attentions[-1] += attentions[i]
+        else:
+            token_attentions.append(attentions[i])
+    token_attentions.append(0.0)
+    return token_attentions
+
+def save_to_saliency_files(args, examples, attentions, predictions):
+    assert len(examples) == len(
+        attentions), "Error number of examples in input not equal to output normalized attentions."
+    assert len(examples) == len(
+        predictions), "Error number of predictions doesn't match number of examples."
+    if not os.path.exists(args.saliency_outfile):
+        os.makedirs(args.saliency_outfile)
+
+    with open(os.path.join(args.saliency_outfile, args.eval_on + "_saliency.jsonl"), "w") as f_out:
+        for example, saliency_score, pred in zip(examples, attentions, predictions):
+            line = {}
+            line["annotation_id"] = example.guid
+            line["input"] = "<s> " + example.text_a + "</s></s> " + example.text_b + " </s>"
+            line["saliency"] = saliency_score
+            line["predicted_label"] = "strengthener" if pred == 1 else "weakener"
+            line["premise"] = example.prem
+            line["hypothesis"] = example.hypo
+            line["update"] = example.upd
+
+            f_out.write(json.dumps(line) + '\n')
+            f_out.flush()
 
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
@@ -150,7 +192,7 @@ def train(args, train_dataset, model, tokenizer):
 
     # Check if saved optimizer or scheduler states exist
     if os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt")) and os.path.isfile(
-        os.path.join(args.model_name_or_path, "scheduler.pt")
+            os.path.join(args.model_name_or_path, "scheduler.pt")
     ):
         # Load in optimizer and scheduler states
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
@@ -307,11 +349,11 @@ def train(args, train_dataset, model, tokenizer):
 def evaluate(args, model, tokenizer, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_task_names = ("mnli", "mnli-mm") if args.task_name == "mnli" else (args.task_name,)
-    eval_outputs_dirs = (args.output_dir, args.output_dir + "-MM") if args.task_name == "mnli" else (args.output_dir,)
+    eval_outputs_dirs = (args.output_dir,)
 
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-        eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, evaluate=True)
+        eval_examples, eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, evaluate=True)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -333,20 +375,38 @@ def evaluate(args, model, tokenizer, prefix=""):
         nb_eval_steps = 0
         preds = None
         out_label_ids = None
+        normalized_attentions = []
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
             batch = tuple(t.to(args.device) for t in batch)
 
             with torch.no_grad():
+                if args.output_attn:
+                    assert len(batch) == 5, "Error with input doesn't have 5 fields is not of size 5"
+                else:
+                    assert len(batch) == 4, "Error with input doesn't have 5 fields is not of size 4"
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
                 if args.model_type != "distilbert":
                     inputs["token_type_ids"] = (
                         batch[2] if args.model_type in ["bert", "xlnet", "albert"] else None
                     )  # XLM, DistilBERT, RoBERTa, and XLM-RoBERTa don't use segment_ids
                 outputs = model(**inputs)
-                tmp_eval_loss, logits = outputs[:2]
-
+                if args.output_attn:
+                    tmp_eval_loss, logits, attentions = outputs[:3]
+                else:
+                    tmp_eval_loss, logits = outputs[:2]
                 eval_loss += tmp_eval_loss.mean().item()
+
+                if args.store_saliency_scores:
+                    attentions = attentions[-1][:,:,0,:].mean(1) # [bs, seq_len]
+                    subtoken_map = batch[4]
+                    if args.exclude_special_tokens:
+                        subtoken_map[torch.where(inputs["input_ids"]==tokenizer.convert_tokens_to_ids("</s>"))] = -1
+                        # subtoken_map[torch.where(inputs["input_ids"]==tokenizer.convert_tokens_to_ids("."))] = -1
+                    for index in range(attentions.shape[0]):
+                        saliency = get_token_saliency_score(attentions[index], subtoken_map[index])
+                        normalized_attentions.append(saliency)
+
             nb_eval_steps += 1
             if preds is None:
                 preds = logits.detach().cpu().numpy()
@@ -357,10 +417,10 @@ def evaluate(args, model, tokenizer, prefix=""):
 
         eval_loss = eval_loss / nb_eval_steps
         if args.output_mode == "classification":
+            probs = F.softmax(torch.tensor(preds), dim=-1)
             preds = np.argmax(preds, axis=1)
         elif args.output_mode == "regression":
             preds = np.squeeze(preds)
-        np.save( os.path.join(eval_output_dir, prefix, "{}_preds.npy".format(args.eval_on)), preds)
         result = compute_metrics(eval_task, preds, out_label_ids)
         results.update(result)
 
@@ -371,6 +431,9 @@ def evaluate(args, model, tokenizer, prefix=""):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
 
+        if args.store_saliency_scores:
+            list_of_predictions = preds.tolist()
+            save_to_saliency_files(args, eval_examples, normalized_attentions, list_of_predictions)
     return results
 
 
@@ -383,12 +446,11 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
     # Load data features from cache or dataset file
     cached_features_file = os.path.join(
         args.data_dir,
-        "cached_{}_{}_{}_{}-{}".format(
+        "cached_{}_{}_{}_{}".format(
             args.eval_on if evaluate else "train",
             list(filter(None, args.model_name_or_path.split("/"))).pop(),
             str(args.max_seq_length),
             str(task),
-            args.exp_from if args.exp_from else ""
         ),
     )
     if os.path.exists(cached_features_file) and not args.overwrite_cache:
@@ -400,25 +462,18 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
         if task in ["mnli", "mnli-mm"] and args.model_type in ["roberta", "xlmroberta"]:
             # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1]
-        if not args.exp_from:
-            examples = (
-                    processor.get_dev_examples(args.data_dir, args.eval_on) if evaluate else processor.get_train_examples(args.data_dir)
-                )
-        else:
-            examples = (
-                    processor.get_dev_examples(args.data_dir, args.exp_from, args.eval_on) if evaluate else processor.get_train_examples(args.data_dir, args.exp_from)
-                )
-        
-
-        # start: Faeze added this
+        examples = (
+            processor.get_dev_examples(args.data_dir, args.eval_on) if evaluate else processor.get_train_examples(args.data_dir)
+        )
         print(len(examples))
-        print(examples[:2], examples[-1])
-#        if evaluate:
-#            with open(os.path.join(args.output_dir, "{}_examples.txt".format(args.eval_on)), "w") as fn:
-#                for item in examples:
-#                    update = item.guid + "\t" + item.text_a + " [SEP] "+ item.text_b
-#                    fn.write("%s\n" %update)
-        # end
+        print(examples[:2])
+        print(examples[-2:])
+
+        convert_examples_to_features = (
+            convert_examples_to_features_w_subtokens
+            if args.output_attn else
+            convert_examples_to_features_orig
+        )
 
         features = convert_examples_to_features(
             examples,
@@ -430,24 +485,29 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
             pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
             pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
         )
-        if args.local_rank in [-1, 0]:
-            logger.info("Saving features into cached file %s", cached_features_file)
-            torch.save(features, cached_features_file)
+        # if args.local_rank in [-1, 0]:
+        #     logger.info("Saving features into cached file %s", cached_features_file)
+        #     torch.save(features, cached_features_file)
 
     if args.local_rank == 0 and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
     # Convert to Tensors and build dataset
+    all_subtoken_map = None
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
     all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
     all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+    # for delta-snli data only
+    if any(f.subtoken_map is not None for f in features):
+        all_subtoken_map = torch.tensor([f.subtoken_map for f in features], dtype=torch.long)
     if output_mode == "classification":
         all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
     elif output_mode == "regression":
         all_labels = torch.tensor([f.label for f in features], dtype=torch.float)
 
-    dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
-    return dataset
+
+    dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels, all_subtoken_map) if all_subtoken_map else TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
+    return examples, dataset
 
 
 def main():
@@ -515,10 +575,7 @@ def main():
     )
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")
-    parser.add_argument("--eval_on", default="dev", type=str, help="Whether to evaluatr on dev or test set.")
-    parser.add_argument("--exp", action="store_true", help="Is data augmented with explanation?")
-    parser.add_argument("--exp_only", action="store_true", help="Does input only consist of explanation?")
-    parser.add_argument("--exp_from", type=str, help="In the rationale only format, where the rationales come from? cn, comet, lm?")
+    parser.add_argument("--eval_on", default="dev", type=str, help="Whether to evaluate on dev or test set.")
     parser.add_argument(
         "--evaluate_during_training", action="store_true", help="Run evaluation during training at each logging step.",
     )
@@ -581,9 +638,21 @@ def main():
         help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
         "See details at https://nvidia.github.io/apex/amp.html",
     )
+    parser.add_argument(
+        "--saliency_outfile",
+        default=None,
+        type=str,
+        help="The output directory where the input and saliency scores are save into.",
+    )
+    parser.add_argument(
+        "--exclude_special_tokens", action="store_false", help="",
+    )
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument("--server_ip", type=str, default="", help="For distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="For distant debugging.")
+    parser.add_argument("--output_attn", action="store_true", help="Whether to return output attentions.")
+    parser.add_argument("--store_saliency_scores", action="store_true",
+                        help="Whether to store salient scores of input tokens.")
     args = parser.parse_args()
 
     if (
@@ -597,9 +666,8 @@ def main():
                 args.output_dir
             )
         )
-
-    if (args.exp_only or args.exp) and not args.exp_from:
-        raise ValueError("It should be specified where the rationales (explanation) come from/")
+    if args.store_saliency_scores and not args.saliency_outfile:
+        raise ValueError("It should be specified where to save saliency scores")
 
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
@@ -640,19 +708,6 @@ def main():
     set_seed(args)
 
     # Prepare GLUE task
-    if args.exp_only:
-        if args.exp_from == "e-snli":
-            processors["dfs-cls"] = DefeasibleClassifierRationaleFromEsnliProcessor
-        elif args.exp_from == "comet":
-            processors["dfs-cls"] = DefeasibleClassifierRationaleFromComet
-    # data has additional generated rationales along with original inputs
-    elif args.exp:
-        processors["dfs-cls"] = DefeasibleClassifierWithRationaleProcessor
-    # orig paper
-    else:
-        processors["dfs-cls"] = DefeasibleClassifierProcessor
-        
-        
     args.task_name = args.task_name.lower()
     if args.task_name not in processors:
         raise ValueError("Task not found: %s" % (args.task_name))
@@ -672,6 +727,7 @@ def main():
         num_labels=num_labels,
         finetuning_task=args.task_name,
         cache_dir=args.cache_dir if args.cache_dir else None,
+        output_attentions=args.output_attn,
     )
     tokenizer = tokenizer_class.from_pretrained(
         args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
@@ -694,7 +750,7 @@ def main():
 
     # Training
     if args.do_train:
-        train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=False)
+        _, train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, evaluate=False)
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
