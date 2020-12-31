@@ -2,9 +2,9 @@
 
 This repo contains code for the paper:
 
-**Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision**
-*Faeze Brahman, Vered Shwartz, Rachel Rudinger, and Yejin Choi.* 
-AAAI 2021, [paper](https://arxiv.org/abs/2012.08012)
+**Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision**                                                                                                          
+*Faeze Brahman, Vered Shwartz, Rachel Rudinger, and Yejin Choi.*                                                                                                                         
+AAAI 2021, [link to paper](https://arxiv.org/abs/2012.08012)
 
 ### Extracting Salient Spans
 
@@ -200,7 +200,7 @@ python -m source.generative.generate_texts \
 	--device 0
 ```
 
-##### How to cite?
+#### How to cite?
 
 ```
 @inproceedings{brahman2020rationalize,
