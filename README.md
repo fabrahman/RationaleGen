@@ -2,7 +2,13 @@
 
 ### Extracting Salient Spans
 
-TODO
+Download the *defeasible-snli* dataset from [here](https://github.com/rudinger/defeasible-nli/tree/main/data/defeasible-nli/defeasible-snli). Then follow the steps below:
+
+First, train a classifier on *defeasible-snli* dataset using: `sh run_clf.sh`
+
+Second, obtain attention scores for input sentences using: `sh run_saliency_all.sh`
+
+Third, extract grammatical salient spans (noun and verb phrases) by: `sh run_span_extractor_all.sh`
 
 ### Collecting Rationales
 
@@ -15,7 +21,7 @@ Run the following commands to generate rationales from LM using the salient span
 ```
 export DATA_DIR=<PATH_TO_DIR_WITH_EXTRACTED_SALIENT_SPANS>
 export OUT_DIR="./output/lm_rationale"
-python -m source.preprocessing.generate_from_lm_v2 \
+python -m source.preprocessing.generate_rationale_from_lm \
 	--dataset ${DATA_DIR}/train_extracted_spans.jsonl \
 	--out_file ${OUT_DIR}/train_rationalized_gpt2-medium.jsonl \
 	--max_single_rationale_length 12 \
@@ -146,7 +152,9 @@ python -m source.generative.generate_texts \
 
 ### Filtering Rationales
 
-TODO
+Following the collection step, train a classifier as proxy on e-SNLI dataset: `sh run_exnli.sh`
+
+The filter final rationales collected from all sources: `run_esnli_instance_predict.sh`
 
 ### Final Rationale Generation Models
 
