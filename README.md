@@ -203,7 +203,7 @@ python -m source.generative.generate_texts \
 #### How to cite?
 
 ```
-@inproceedings{brahman2020rationalize,
+@inproceedings{brahman2021rationalize,
   title={Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision},
   author={Faeze Brahman, Vered Shwartz, Rachel Rudinger and Yejin Choi},
   booktitle={AAAI},
