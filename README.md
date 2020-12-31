@@ -1,5 +1,11 @@
 ## Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision
 
+This repo contains code for the paper:
+
+**Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision**
+*Faeze Brahman, Vered Shwartz, Rachel Rudinger, and Yejin Choi.* 
+AAAI 2021, [paper](https://arxiv.org/abs/2012.08012)
+
 ### Extracting Salient Spans
 
 Download the *defeasible-snli* dataset from [here](https://github.com/rudinger/defeasible-nli/tree/main/data/defeasible-nli/defeasible-snli). Then follow the steps below:
@@ -194,3 +200,13 @@ python -m source.generative.generate_texts \
 	--device 0
 ```
 
+##### How to cite?
+
+```
+@inproceedings{brahman2020rationalize,
+  title={Learning to Rationalize for Nonmonotonic Reasoning with Distant Supervision},
+  author={Faeze Brahman, Vered Shwartz, Rachel Rudinger and Yejin Choi},
+  booktitle={AAAI},
+  year={2021}
+}
+```
