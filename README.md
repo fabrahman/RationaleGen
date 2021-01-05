@@ -200,7 +200,7 @@ python -m source.generative.generate_texts \
 	--device 0
 ```
 
-#### How to cite?
+## How to cite?
 
 ```
 @inproceedings{brahman2021rationalize,
